@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMA Region Annotation Tool</title>
+    <style>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        #imageCanvas {
+            border: 1px solid #ccc;
+            margin-top: 20px;
+            cursor: crosshair;
+            display: none;
+        }
+
+        .button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        #status {
+            margin-top: 10px;
+            padding: 10px;
+            display: none;
+        }
+
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        .success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        #cropsContainer {
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+
+        .crop-wrapper {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .crop-image {
+            max-width: 150px;
+            max-height: 150px;
+            object-fit: contain;
+        }
+
+        .legend {
+            margin: 20px 0;
+            padding: 10px;
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body> 
+    <div class="container">
+        <h1>BMA Region Annotation Tool</h1>
+
+        <div>
+            <h3>Image Upload:</h3>
+            <input type="file" id="imageUpload" accept="image/*">
+            <h3>CSV Upload (optional):</h3>
+            <input type="file" id="csvUpload" accept=".csv">
+            <br><br>
+            <button class="button" onclick="uploadFiles()">Upload Files</button>
+            <button class="button" onclick="clearAnnotations()">Clear Annotations</button>
+            <button class="button" onclick="processAnnotations()">Process Annotations</button>
+            <button class="button" onclick="undoLastBox()" title="You can also press Ctrl+Z or Cmd+Z">Undo Last Box</button>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff0000;"></div>
+                <span>Predefined Centroids (from CSV)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #00ff00;"></div>
+                <span>User-added Centroids</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ff0000; opacity: 0.3;"></div>
+                <span>Delete Mode Box</span>
+            </div>
+        </div>
+
+        <div id="status"></div>
+        <canvas id="imageCanvas"></canvas>
+        <div id="cropsContainer"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d');
+        let currentImage = null;
+        let currentFilename = '';
+        let bboxes = [];
+        let isDrawing = false;
+        let isErasing = false;
+        let startX, startY;
+        let draggedCentroid = null;
+        let tempBox = null;
+
+        // Add keyboard event listeners for undo and erase mode
+        document.addEventListener('keydown', function (e) {
+            // Check for Ctrl+Z or Cmd+Z (Meta key is Cmd on Mac)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault(); // Prevent browser's default undo
+                undoLastBox();
+            }
+            // Toggle erase mode when E is pressed
+            if (e.key.toLowerCase() === 'e') {
+                isErasing = !isErasing;
+                canvas.style.cursor = isErasing ? 'crosshair' : 'default';
+                showStatus(isErasing ? 'Delete mode enabled' : 'Delete mode disabled');
+            }
+        });
+
+        // Function to undo last user-drawn box
+        function undoLastBox() {
+            // Find the last user-drawn box (non-predefined)
+            for (let i = bboxes.length - 1; i >= 0; i--) {
+                if (!bboxes[i].isPredefined) {
+                    bboxes.splice(i, 1); // Remove the box
+                    redrawCanvas();
+                    showStatus('Last annotation undone');
+                    // Automatically process annotations after undoing
+                    processAnnotations();
+                    break;
+                }
+            }
+        }
+
+        function showStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.style.display = 'block';
+            status.className = isError ? 'error' : 'success';
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+
+        async function uploadFiles() {
+            const imageInput = document.getElementById('imageUpload');
+            const csvInput = document.getElementById('csvUpload');
+
+            const imageFile = imageInput.files[0];
+            if (!imageFile) return;
+
+            const formData = new FormData();
+            formData.append('image', imageFile);
+
+            if (csvInput.files[0]) {
+                formData.append('csv', csvInput.files[0]);
+            }
+
+            try {
+                const response = await fetch('http://localhost:8888/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                currentFilename = data.filename;
+                bboxes = [];
+
+                // Load the image and predefined boxes
+                loadImage(imageFile, data.bboxes || []);
+            } catch (error) {
+                console.error('Upload error:', error);
+            }
+        }
+
+        function loadImage(file, predefinedBboxes = []) {
+            const img = new Image();
+            img.onload = function () {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                canvas.style.display = 'block';
+                ctx.drawImage(img, 0, 0);
+                currentImage = img;
+
+                // Add predefined boxes
+                predefinedBboxes.forEach(bbox => {
+                    bboxes.push({
+                        x: bbox.TL_x,
+                        y: bbox.TL_y,
+                        w: bbox.BR_x - bbox.TL_x,
+                        h: bbox.BR_y - bbox.TL_y,
+                        isPredefined: true
+                    });
+                });
+
+                redrawCanvas();
+                // Process annotations after image and boxes are loaded
+                processAnnotations();
+            };
+            img.src = URL.createObjectURL(file);
+        }
+
+        function redrawCanvas() {
+            if (!currentImage) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(currentImage, 0, 0);
+
+            // Draw temporary box if exists
+            if (tempBox) {
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(tempBox.x, tempBox.y, tempBox.w, tempBox.h);
+            }
+
+            // Draw only centroids for all boxes
+            bboxes.forEach(bbox => {
+                const centroidX = bbox.x + (bbox.w / 2);
+                const centroidY = bbox.y + (bbox.h / 2);
+
+                // Draw centroid
+                ctx.fillStyle = bbox.isPredefined ? '#ff0000' : '#00ff00';
+                ctx.beginPath();
+                ctx.arc(centroidX, centroidY, 5, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
+
+        canvas.addEventListener('mousedown', function (e) {
+            if (!currentImage) return;
+
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+
+            if (!isErasing) {
+                // In annotation mode, create new box centered at click
+                const boxSize = 96;
+                const halfSize = boxSize / 2;
+                const x = Math.max(0, Math.min(canvas.width - boxSize, startX - halfSize));
+                const y = Math.max(0, Math.min(canvas.height - boxSize, startY - halfSize));
+                
+                draggedCentroid = {
+                    x: x,
+                    y: y,
+                    w: boxSize,
+                    h: boxSize,
+                    isPredefined: false
+                };
+                bboxes.push(draggedCentroid);
+                tempBox = draggedCentroid;
+            }
+            
+            isDrawing = true;
+        });
+
+        canvas.addEventListener('mousemove', function (e) {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const currentX = e.clientX - rect.left;
+            const currentY = e.clientY - rect.top;
+
+            if (isErasing) {
+                // In delete mode, draw deletion box
+                redrawCanvas();
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                ctx.fillRect(
+                    startX,
+                    startY,
+                    currentX - startX,
+                    currentY - startY
+                );
+            } else if (draggedCentroid) {
+                // In annotation mode, update centroid position
+                const boxSize = 96;
+                const halfSize = boxSize / 2;
+                draggedCentroid.x = Math.max(0, Math.min(canvas.width - boxSize, currentX - halfSize));
+                draggedCentroid.y = Math.max(0, Math.min(canvas.height - boxSize, currentY - halfSize));
+                tempBox = draggedCentroid;
+                redrawCanvas();
+            }
+        });
+
+        canvas.addEventListener('mouseup', function (e) {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const endX = e.clientX - rect.left;
+            const endY = e.clientY - rect.top;
+
+            if (isErasing) {
+                // Calculate delete box coordinates
+                const deleteX = Math.min(startX, endX);
+                const deleteY = Math.min(startY, endY);
+                const deleteW = Math.abs(endX - startX);
+                const deleteH = Math.abs(endY - startY);
+
+                // Remove all boxes (including predefined) whose centroids are inside the delete box
+                const originalLength = bboxes.length;
+                bboxes = bboxes.filter(bbox => {
+                    const centroidX = bbox.x + bbox.w/2;
+                    const centroidY = bbox.y + bbox.h/2;
+                    return !(centroidX >= deleteX && 
+                            centroidX <= deleteX + deleteW && 
+                            centroidY >= deleteY && 
+                            centroidY <= deleteY + deleteH);
+                });
+
+                if (bboxes.length < originalLength) {
+                    showStatus('Annotations in selected area removed');
+                    processAnnotations();
+                }
+            } else {
+                // Finalize the dragged centroid position
+                draggedCentroid = null;
+                tempBox = null;
+                processAnnotations();
+            }
+
+            isDrawing = false;
+            redrawCanvas();
+        });
+
+        function clearAnnotations() {
+            bboxes = bboxes.filter(bbox => bbox.isPredefined);
+            redrawCanvas();
+            document.getElementById('cropsContainer').innerHTML = '';
+            showStatus('User annotations cleared');
+        }
+
+        async function processAnnotations() {
+            if (!currentImage || bboxes.length === 0) {
+                showStatus('No annotations to process', true);
+                document.getElementById('cropsContainer').innerHTML = '';
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:8888/annotate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        filename: currentFilename,
+                        bboxes: bboxes.map(bbox => ({
+                            x: bbox.x,
+                            y: bbox.y,
+                            w: bbox.w,
+                            h: bbox.h
+                        }))
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (data.crops) {
+                    displayCrops(data.crops);
+                }
+            } catch (error) {
+                console.error('Processing error:', error);
+                showStatus(`Processing failed: ${error.message}`, true);
+            }
+        }
+
+        function displayCrops(crops) {
+            const container = document.getElementById('cropsContainer');
+            container.innerHTML = '';
+
+            // Sample classes - can be modified as needed
+            const classes = ['cat', 'dog', 'bird', 'fish'];
+            
+            // Create a map to store crops by class
+            const cropsByClass = {};
+            classes.forEach(cls => cropsByClass[cls] = []);
+
+            // Randomly assign classes to crops
+            crops.forEach((cropUrl, index) => {
+                const randomClass = classes[Math.floor(Math.random() * classes.length)];
+                const bbox = bboxes[index];
+                cropsByClass[randomClass].push({
+                    url: cropUrl,
+                    index: index,
+                    bbox: bbox
+                });
+            });
+
+            // Display crops grouped by class
+            classes.forEach(cls => {
+                if (cropsByClass[cls].length > 0) {
+                    // Create section header for class
+                    const sectionHeader = document.createElement('h2');
+                    sectionHeader.innerHTML = `${cls.charAt(0).toUpperCase() + cls.slice(1)}s:`;
+                    container.appendChild(sectionHeader);
+
+                    // Create section container
+                    const sectionContainer = document.createElement('div');
+                    sectionContainer.className = 'class-section';
+
+                    cropsByClass[cls].forEach(crop => {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'crop-wrapper';
+
+                        const img = document.createElement('img');
+                        img.src = crop.url;
+                        img.className = 'crop-image';
+
+                        const label = document.createElement('div');
+                        const centroidX = Math.round(crop.bbox.x + crop.bbox.w / 2);
+                        const centroidY = Math.round(crop.bbox.y + crop.bbox.h / 2);
+                        label.innerHTML = `${cls} ${crop.index + 1}<br>Centroid: (${centroidX}, ${centroidY})`;
+                        label.style.marginTop = '5px';
+
+                        wrapper.appendChild(img);
+                        wrapper.appendChild(label);
+                        sectionContainer.appendChild(wrapper);
+                    });
+
+                    container.appendChild(sectionContainer);
+                }
+            });
+        }
+    </script>
+</body>
+
+
+</html>
+
+

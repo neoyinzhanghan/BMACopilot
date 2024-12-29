@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen Capture</title>
+</head>
+<body>
+    <h1>Screen Capture App</h1>
+    <button id="start">Start Screen Share</button>
+    <button id="capture">Capture Screen Area</button>
+    <video id="screen-video" autoplay></video>
+    <canvas id="canvas" style="border: 1px solid black;"></canvas>
+    
+    <script>
+        let stream = null;
+        const video = document.getElementById('screen-video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        document.getElementById('start').addEventListener('click', async () => {
+            try {
+                stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Error: ", err);
+            }
+        });
+
+        document.getElementById('capture').addEventListener('click', () => {
+            if (stream) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            } else {
+                alert('Start screen share first!');
+            }
+        });
+    </script>
+</body>
+</html>
