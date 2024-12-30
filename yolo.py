@@ -31,7 +31,6 @@ except Exception as e:
 def health_check():
     return jsonify({"status": "healthy", "model_loaded": model is not None})
 
-
 @app.route("/detect", methods=["POST"])
 def detect():
     try:
@@ -53,14 +52,14 @@ def detect():
             return jsonify({"error": "YOLO model not initialized"}), 500
 
         results = YOLO_detect(model, image, conf_thres=YOLO_conf_thres)
-
-        # Convert DataFrame to dict for JSON serialization
-        df_dict = results.pandas().xyxy[0].to_dict("records")
-
+        
+        # Convert DataFrame directly to dict for JSON serialization
+        df_dict = results.to_dict('records')
+        
         detection_results = {
             "filename": filename,
             "num_detections": len(df_dict),
-            "detections": df_dict,
+            "detections": df_dict
         }
 
         # Clean up the uploaded file
@@ -74,7 +73,6 @@ def detect():
     except Exception as e:
         app.logger.error(f"Error in detection: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9999, debug=True)
