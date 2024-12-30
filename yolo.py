@@ -31,6 +31,7 @@ except Exception as e:
 def health_check():
     return jsonify({"status": "healthy", "model_loaded": model is not None})
 
+
 @app.route("/detect", methods=["POST"])
 def detect():
     try:
@@ -52,14 +53,32 @@ def detect():
             return jsonify({"error": "YOLO model not initialized"}), 500
 
         results = YOLO_detect(model, image, conf_thres=YOLO_conf_thres)
-        
-        # Convert DataFrame directly to dict for JSON serialization
-        df_dict = results.to_dict('records')
-        
+
+        # Debug logging
+        app.logger.info(f"Type of results: {type(results)}")
+        app.logger.info(f"Results content: {results}")
+        app.logger.info(f"Results dir: {dir(results)}")
+
+        # Try to handle different possible formats
+        if hasattr(results, "to_dict"):
+            # If it's a DataFrame
+            df_dict = results.to_dict("records")
+        elif hasattr(results, "pandas"):
+            # If it's a YOLO Results object
+            df_dict = results.pandas().xyxy[0].to_dict("records")
+        elif isinstance(results, list):
+            # If it's already a list of detections
+            df_dict = results
+        else:
+            # If we can't determine the format, return the string representation
+            return jsonify(
+                {"filename": filename, "num_detections": 0, "raw_results": str(results)}
+            )
+
         detection_results = {
             "filename": filename,
             "num_detections": len(df_dict),
-            "detections": df_dict
+            "detections": df_dict,
         }
 
         # Clean up the uploaded file
@@ -72,7 +91,11 @@ def detect():
 
     except Exception as e:
         app.logger.error(f"Error in detection: {str(e)}")
+        app.logger.error(
+            f"Full error details:", exc_info=True
+        )  # Added full error traceback
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9999, debug=True)
