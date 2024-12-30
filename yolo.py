@@ -63,17 +63,8 @@ def detect():
         if hasattr(results, "to_dict"):
             # If it's a DataFrame
             df_dict = results.to_dict("records")
-        elif hasattr(results, "pandas"):
-            # If it's a YOLO Results object
-            df_dict = results.pandas().xyxy[0].to_dict("records")
-        elif isinstance(results, list):
-            # If it's already a list of detections
-            df_dict = results
         else:
-            # If we can't determine the format, return the string representation
-            return jsonify(
-                {"filename": filename, "num_detections": 0, "raw_results": str(results)}
-            )
+            raise ValueError("Unknown results format")
 
         detection_results = {
             "filename": filename,
@@ -98,4 +89,6 @@ def detect():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=9999, debug=True)
+    # app.run(host="0.0.0.0", port=9999, debug=True)
+
+    image_path = "3316.jpg"
