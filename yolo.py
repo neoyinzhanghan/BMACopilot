@@ -31,6 +31,7 @@ except Exception as e:
 def health_check():
     return jsonify({"status": "healthy", "model_loaded": model is not None})
 
+
 @app.route("/detect", methods=["POST"])
 def detect():
     try:
@@ -52,39 +53,33 @@ def detect():
             return jsonify({"error": "YOLO model not initialized"}), 500
 
         results = YOLO_detect(model, image, conf_thres=YOLO_conf_thres)
-        
-        # Process results differently - let's log the actual format first
-        app.logger.info(f"Raw YOLO results type: {type(results)}")
-        app.logger.info(f"Raw YOLO results: {results}")
-        
-        # Convert results to bounding boxes format
-        bboxes = []
-        
-        # Assuming results is a YOLO Results object or similar
-        if hasattr(results, 'xyxy'):  # Common YOLO format
-            boxes = results.xyxy[0]  # Get boxes from first image
-            for box in boxes:
-                bbox = {
-                    "TL_x": float(box[0]),  # xmin
-                    "TL_y": float(box[1]),  # ymin
-                    "BR_x": float(box[2]),  # xmax
-                    "BR_y": float(box[3]),  # ymax
-                    "confidence": float(box[4]),  # confidence
-                    "class": int(box[5])  # class id
+
+        # Convert the results to a serializable format
+        detection_results = {
+            "filename": filename,
+            "raw_output": str(results),  # Convert the raw output to string
+            "detections": [],
+        }
+
+        # Try to process each detection result
+        try:
+            for det in results:
+                detection = {
+                    "class": str(det.cls),
+                    "confidence": float(det.conf),
+                    "bbox": (
+                        det.xywh.tolist() if hasattr(det, "xywh") else det.xyxy.tolist()
+                    ),
                 }
-                bboxes.append(bbox)
-        else:
-            # If different format, log it for debugging
-            app.logger.info("Different result format detected")
-            app.logger.info(f"Available attributes: {dir(results)}")
-            
-            # Try to get boxes in a more general way
+                detection_results["detections"].append(detection)
+        except AttributeError:
+            # If the above format doesn't work, try to capture the pandas DataFrame
             try:
-                for det in results:
-                    app.logger.info(f"Detection: {det}")
-                    # Add appropriate conversion here based on actual format
-            except Exception as e:
-                app.logger.error(f"Error processing detection: {e}")
+                detection_results["detections"] = (
+                    results.pandas().xyxy[0].to_dict("records")
+                )
+            except:
+                detection_results["detections"] = str(results)
 
         # Clean up the uploaded file
         try:
@@ -92,16 +87,13 @@ def detect():
         except Exception as e:
             app.logger.warning(f"Could not remove temporary file {filepath}: {e}")
 
-        app.logger.info(f"Detection completed. Found {len(bboxes)} objects")
-        return jsonify({
-            "filename": filename,
-            "bboxes": bboxes,
-            "detection_info": f"Found {len(bboxes)} objects"
-        })
+        app.logger.info(f"Detection completed")
+        return jsonify(detection_results)
 
     except Exception as e:
         app.logger.error(f"Error in detection: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9999, debug=True)

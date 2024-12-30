@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,6 +12,7 @@
             margin: 20px auto;
             padding: 0 20px;
         }
+
         .result {
             margin-top: 20px;
             padding: 10px;
@@ -19,41 +21,60 @@
             white-space: pre-wrap;
             background-color: #f5f5f5;
         }
+
         #uploadForm {
             margin: 20px 0;
         }
+
         #status {
             margin-top: 10px;
             color: #666;
         }
+
+        .detection-info {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        .raw-output {
+            margin-top: 10px;
+            font-family: monospace;
+            background-color: #eee;
+            padding: 10px;
+        }
     </style>
 </head>
+
 <body>
     <h1>YOLO Detection Test</h1>
-    
+
     <form id="uploadForm">
         <input type="file" id="imageInput" accept="image/*" required>
         <button type="submit">Run Detection</button>
     </form>
-    
+
     <div id="status"></div>
-    <div id="result" class="result"></div>
+    <div id="result" class="result">
+        <div class="detection-info"></div>
+        <div class="raw-output"></div>
+    </div>
 
     <script>
-        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+        document.getElementById('uploadForm').addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             const statusDiv = document.getElementById('status');
             const resultDiv = document.getElementById('result');
             const imageFile = document.getElementById('imageInput').files[0];
-            
+
             if (!imageFile) {
                 statusDiv.textContent = 'Please select an image first';
                 return;
             }
 
             statusDiv.textContent = 'Running detection...';
-            resultDiv.textContent = '';
+            resultDiv.querySelector('.detection-info').textContent = '';
+            resultDiv.querySelector('.raw-output').textContent = '';
 
             const formData = new FormData();
             formData.append('image', imageFile);
@@ -65,19 +86,29 @@
                 });
 
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     statusDiv.textContent = 'Detection completed!';
-                    resultDiv.textContent = JSON.stringify(data, null, 2);
+
+                    // Display number of detections
+                    const numDetections = data.detections ? data.detections.length : 0;
+                    resultDiv.querySelector('.detection-info').textContent =
+                        `Found ${numDetections} objects in ${data.filename}`;
+
+                    // Display full results
+                    resultDiv.querySelector('.raw-output').textContent =
+                        JSON.stringify(data, null, 2);
                 } else {
                     statusDiv.textContent = 'Error during detection';
-                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                    resultDiv.querySelector('.raw-output').textContent =
+                        JSON.stringify(data, null, 2);
                 }
             } catch (error) {
                 statusDiv.textContent = 'Error connecting to server';
-                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.querySelector('.raw-output').textContent = 'Error: ' + error.message;
             }
         });
     </script>
 </body>
+
 </html>
