@@ -31,7 +31,6 @@ except Exception as e:
 def health_check():
     return jsonify({"status": "healthy", "model_loaded": model is not None})
 
-
 @app.route("/detect", methods=["POST"])
 def detect():
     try:
@@ -53,18 +52,39 @@ def detect():
             return jsonify({"error": "YOLO model not initialized"}), 500
 
         results = YOLO_detect(model, image, conf_thres=YOLO_conf_thres)
-
+        
+        # Process results differently - let's log the actual format first
+        app.logger.info(f"Raw YOLO results type: {type(results)}")
+        app.logger.info(f"Raw YOLO results: {results}")
+        
         # Convert results to bounding boxes format
         bboxes = []
-        for result in results:
-            bbox = {
-                "TL_x": float(result[0]),
-                "TL_y": float(result[1]),
-                "BR_x": float(result[2]),
-                "BR_y": float(result[3]),
-                "confidence": float(result[4]) if len(result) > 4 else None,
-            }
-            bboxes.append(bbox)
+        
+        # Assuming results is a YOLO Results object or similar
+        if hasattr(results, 'xyxy'):  # Common YOLO format
+            boxes = results.xyxy[0]  # Get boxes from first image
+            for box in boxes:
+                bbox = {
+                    "TL_x": float(box[0]),  # xmin
+                    "TL_y": float(box[1]),  # ymin
+                    "BR_x": float(box[2]),  # xmax
+                    "BR_y": float(box[3]),  # ymax
+                    "confidence": float(box[4]),  # confidence
+                    "class": int(box[5])  # class id
+                }
+                bboxes.append(bbox)
+        else:
+            # If different format, log it for debugging
+            app.logger.info("Different result format detected")
+            app.logger.info(f"Available attributes: {dir(results)}")
+            
+            # Try to get boxes in a more general way
+            try:
+                for det in results:
+                    app.logger.info(f"Detection: {det}")
+                    # Add appropriate conversion here based on actual format
+            except Exception as e:
+                app.logger.error(f"Error processing detection: {e}")
 
         # Clean up the uploaded file
         try:
@@ -73,12 +93,15 @@ def detect():
             app.logger.warning(f"Could not remove temporary file {filepath}: {e}")
 
         app.logger.info(f"Detection completed. Found {len(bboxes)} objects")
-        return jsonify({"filename": filename, "bboxes": bboxes})
+        return jsonify({
+            "filename": filename,
+            "bboxes": bboxes,
+            "detection_info": f"Found {len(bboxes)} objects"
+        })
 
     except Exception as e:
         app.logger.error(f"Error in detection: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9999, debug=True)
