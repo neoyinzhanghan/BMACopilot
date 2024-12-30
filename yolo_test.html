@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Detection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            background-color: #f5f5f5;
+        }
+        #uploadForm {
+            margin: 20px 0;
+        }
+        #status {
+            margin-top: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>YOLO Detection Test</h1>
+    
+    <form id="uploadForm">
+        <input type="file" id="imageInput" accept="image/*" required>
+        <button type="submit">Run Detection</button>
+    </form>
+    
+    <div id="status"></div>
+    <div id="result" class="result"></div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            const imageFile = document.getElementById('imageInput').files[0];
+            
+            if (!imageFile) {
+                statusDiv.textContent = 'Please select an image first';
+                return;
+            }
+
+            statusDiv.textContent = 'Running detection...';
+            resultDiv.textContent = '';
+
+            const formData = new FormData();
+            formData.append('image', imageFile);
+
+            try {
+                const response = await fetch('http://10.7.73.72:9999/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.textContent = 'Detection completed!';
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    statusDiv.textContent = 'Error during detection';
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                }
+            } catch (error) {
+                statusDiv.textContent = 'Error connecting to server';
+                resultDiv.textContent = 'Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
