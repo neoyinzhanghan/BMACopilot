@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,73 +7,114 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
+            max-width: 1200px;
             margin: 20px auto;
             padding: 0 20px;
         }
-
         .result {
             margin-top: 20px;
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
-            white-space: pre-wrap;
-            background-color: #f5f5f5;
+            overflow-x: auto;
         }
-
         #uploadForm {
             margin: 20px 0;
         }
-
         #status {
             margin-top: 10px;
             color: #666;
         }
-
-        .detection-info {
-            margin-top: 10px;
-            font-weight: bold;
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
         }
-
-        .raw-output {
-            margin-top: 10px;
-            font-family: monospace;
-            background-color: #eee;
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f0f0f0;
+        }
+        .summary {
+            margin: 20px 0;
             padding: 10px;
+            background-color: #e8f4f8;
+            border-radius: 4px;
         }
     </style>
 </head>
-
 <body>
     <h1>YOLO Detection Test</h1>
-
+    
     <form id="uploadForm">
         <input type="file" id="imageInput" accept="image/*" required>
         <button type="submit">Run Detection</button>
     </form>
-
+    
     <div id="status"></div>
-    <div id="result" class="result">
-        <div class="detection-info"></div>
-        <div class="raw-output"></div>
-    </div>
+    <div class="summary" id="summary"></div>
+    <div id="result" class="result"></div>
 
     <script>
-        document.getElementById('uploadForm').addEventListener('submit', async function (e) {
-            e.preventDefault();
+        function createTable(data) {
+            if (!data.detections || data.detections.length === 0) {
+                return '<p>No detections found</p>';
+            }
 
+            // Get column headers from first detection
+            const columns = Object.keys(data.detections[0]);
+            
+            let table = '<table>';
+            
+            // Create header row
+            table += '<tr>';
+            columns.forEach(column => {
+                table += `<th>${column}</th>`;
+            });
+            table += '</tr>';
+            
+            // Create data rows
+            data.detections.forEach(detection => {
+                table += '<tr>';
+                columns.forEach(column => {
+                    const value = detection[column];
+                    // Round floating point numbers to 4 decimal places
+                    const displayValue = typeof value === 'number' ? 
+                        value.toFixed(4) : value;
+                    table += `<td>${displayValue}</td>`;
+                });
+                table += '</tr>';
+            });
+            
+            table += '</table>';
+            return table;
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
             const statusDiv = document.getElementById('status');
             const resultDiv = document.getElementById('result');
+            const summaryDiv = document.getElementById('summary');
             const imageFile = document.getElementById('imageInput').files[0];
-
+            
             if (!imageFile) {
                 statusDiv.textContent = 'Please select an image first';
                 return;
             }
 
             statusDiv.textContent = 'Running detection...';
-            resultDiv.querySelector('.detection-info').textContent = '';
-            resultDiv.querySelector('.raw-output').textContent = '';
+            resultDiv.innerHTML = '';
+            summaryDiv.innerHTML = '';
 
             const formData = new FormData();
             formData.append('image', imageFile);
@@ -86,29 +126,27 @@
                 });
 
                 const data = await response.json();
-
+                
                 if (response.ok) {
                     statusDiv.textContent = 'Detection completed!';
-
-                    // Display number of detections
-                    const numDetections = data.detections ? data.detections.length : 0;
-                    resultDiv.querySelector('.detection-info').textContent =
-                        `Found ${numDetections} objects in ${data.filename}`;
-
-                    // Display full results
-                    resultDiv.querySelector('.raw-output').textContent =
-                        JSON.stringify(data, null, 2);
+                    
+                    // Display summary
+                    summaryDiv.innerHTML = `
+                        <strong>File:</strong> ${data.filename}<br>
+                        <strong>Total Detections:</strong> ${data.num_detections}
+                    `;
+                    
+                    // Create and display table
+                    resultDiv.innerHTML = createTable(data);
                 } else {
                     statusDiv.textContent = 'Error during detection';
-                    resultDiv.querySelector('.raw-output').textContent =
-                        JSON.stringify(data, null, 2);
+                    resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
                 }
             } catch (error) {
                 statusDiv.textContent = 'Error connecting to server';
-                resultDiv.querySelector('.raw-output').textContent = 'Error: ' + error.message;
+                resultDiv.innerHTML = `<pre>Error: ${error.message}</pre>`;
             }
         });
     </script>
 </body>
-
 </html>

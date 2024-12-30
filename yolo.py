@@ -54,32 +54,14 @@ def detect():
 
         results = YOLO_detect(model, image, conf_thres=YOLO_conf_thres)
 
-        # Convert the results to a serializable format
+        # Convert DataFrame to dict for JSON serialization
+        df_dict = results.pandas().xyxy[0].to_dict("records")
+
         detection_results = {
             "filename": filename,
-            "raw_output": str(results),  # Convert the raw output to string
-            "detections": [],
+            "num_detections": len(df_dict),
+            "detections": df_dict,
         }
-
-        # Try to process each detection result
-        try:
-            for det in results:
-                detection = {
-                    "class": str(det.cls),
-                    "confidence": float(det.conf),
-                    "bbox": (
-                        det.xywh.tolist() if hasattr(det, "xywh") else det.xyxy.tolist()
-                    ),
-                }
-                detection_results["detections"].append(detection)
-        except AttributeError:
-            # If the above format doesn't work, try to capture the pandas DataFrame
-            try:
-                detection_results["detections"] = (
-                    results.pandas().xyxy[0].to_dict("records")
-                )
-            except:
-                detection_results["detections"] = str(results)
 
         # Clean up the uploaded file
         try:
@@ -87,7 +69,6 @@ def detect():
         except Exception as e:
             app.logger.warning(f"Could not remove temporary file {filepath}: {e}")
 
-        app.logger.info(f"Detection completed")
         return jsonify(detection_results)
 
     except Exception as e:
